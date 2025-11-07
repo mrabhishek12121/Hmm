@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KaamSetu</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .container-mobile {
+            max-width: 420px;
+        }
+        .scrollable {
+            /* Max height adjusted for mobile view, accounting for header and nav */
+            max-height: calc(100vh - 120px); 
+            overflow-y: auto;
+        }
+        /* Custom scrollbar for aesthetics */
+        .scrollable::-webkit-scrollbar {
+            width: 4px;
+        }
+        .scrollable::-webkit-scrollbar-thumb {
+            background-color: #3b82f6;
+            border-radius: 2px;
+        }
+        .task-card {
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .task-card:active {
+            transform: scale(0.98);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body>
+
+<div id="app" class="min-h-screen flex flex-col items-center p-0">
+    <!-- Main Header (Only Visible When Authenticated) -->
+    <header id="main-header" class="w-full bg-white shadow-md sticky top-0 z-10 hidden">
+        <div class="container-mobile mx-auto flex justify-between items-center p-4">
+            <h1 class="text-xl font-bold text-gray-800">KaamSetu</h1>
+            <div class="flex items-center space-x-3">
+                <button onclick="changePage('wallet')" class="flex items-center space-x-2 bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-3 rounded-full shadow-lg transition duration-150 ease-in-out">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                    <span id="wallet-balance-display">0</span>
+                </button>
+                <button onclick="handleLogout()" class="text-sm text-gray-500 hover:text-red-500 font-medium">
+                    Logout
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="w-full flex-grow p-4 scrollable">
+        <div id="content" class="container-mobile mx-auto">
+            <!-- Content/Login/Loading will be rendered here -->
+            <div class="flex flex-col items-center justify-center p-8 bg-white rounded-xl shadow-lg">
+                <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500"></div>
+                <p class="mt-4 text-gray-600">Checking session...</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Navigation Bar for Mobile (Only Visible When Authenticated) -->
+    <nav id="main-nav" class="fixed bottom-0 w-full bg-white shadow-2xl rounded-t-xl z-20 hidden">
+        <div class="container-mobile mx-auto flex justify-around items-center h-16">
+            <button id="nav-tasks" onclick="changePage('tasks')" class="nav-button flex flex-col items-center p-2 text-blue-600">
+                <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M9 2a1 1 0 00-1 1v1H5a2 2 0 00-2 2v10a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2h-3V3a1 1 0 10-2 0v1H9V3a1 1 0 00-1-1zm0 4h6v1a1 1 0 102 0V6h3v10a1 1 0 01-1 1H5a1 1 0 01-1-1V6h3v1a1 1 0 102 0V6z"></path></svg>
+                <span class="text-xs font-medium">Tasks</span>
+            </button>
+            <button id="nav-wallet" onclick="changePage('wallet')" class="nav-button flex flex-col items-center p-2 text-gray-500 hover:text-blue-600">
+                <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M10 2a2 2 0 00-2 2v3.586l-.707.707A2 2 0 007 9.586V19a2 2 0 002 2h10a2 2 0 002-2V9.586a2 2 0 00-.586-1.414l-.707-.707V4a2 2 0 00-2-2H10zm-1 9a1 1 0 011-1h4a1 1 0 110 2h-4a1 1 0 01-1-1z" clip-rule="evenodd"></path></svg>
+                <span class="text-xs font-medium">Wallet</span>
+            </button>
+            <button id="nav-withdrawals" onclick="changePage('withdrawals')" class="nav-button flex flex-col items-center p-2 text-gray-500 hover:text-blue-600">
+                <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 18a8 8 0 110-16 8 8 0 010 16zm-1-8H8a1 1 0 000 2h3v3a1 1 0 002 0v-3h3a1 1 0 000-2h-3V8a1 1 0 00-2 0v3z"></path></svg>
+                <span class="text-xs font-medium">History</span>
+            </button>
+        </div>
+    </nav>
+
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { 
+        getAuth, 
+        onAuthStateChanged, 
+        createUserWithEmailAndPassword, 
+        signInWithEmailAndPassword,    
+        signOut,                       
+    } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, onSnapshot, collection, query, addDoc, getDocs, limit, orderBy, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // --- YOUR HARDCODED FIREBASE CONFIGURATION ---
+    const firebaseConfig = {
+      apiKey: "AIzaSyC66x_An6ugRrybRUsNWEyJmVeMULpEcFw",
+      authDomain: "kaamsetu-dc4a2.firebaseapp.com",
+      projectId: "kaamsetu-dc4a2",
+      storageBucket: "kaamsetu-dc4a2.firebasestorage.app",
+      messagingSenderId: "171235077454",
+      appId: "1:171235077454:web:22e239c416846ecc6f421f",
+      measurementId: "G-1LMZ7T0L0C"
+    };
+
+    // Use the projectId as the unique application ID for Firestore paths
+    const appId = firebaseConfig.projectId; 
+    const FAKE_DOMAIN = '@taskhub.com'; // Used to convert username to Firebase-compatible email
+
+    let app;
+    let db;
+    let auth;
+    let userId = null; 
+
+    // --- APPLICATION STATE ---
+    let state = {
+        isAuthReady: false,
+        isAuthenticated: false,
+        currentPage: 'loading',
+        currentTask: null,
+        walletBalance: 0,
+        tasks: [],
+        completedTaskIds: [], 
+        withdrawals: [],
+        message: null, 
+        isSigningUp: false,
+    };
+
+    // --- UI ELEMENTS ---
+    const contentEl = document.getElementById('content');
+    const walletBalanceDisplayEl = document.getElementById('wallet-balance-display');
+    const navButtons = document.querySelectorAll('.nav-button');
+    const mainHeaderEl = document.getElementById('main-header');
+    const mainNavEl = document.getElementById('main-nav');
+
+    // --- HELPER FUNCTIONS ---
+
+    /** Displays a temporary message to the user */
+    function showMessage(text, isError = false) {
+        state.message = { text, isError };
+        renderApp();
+        setTimeout(() => {
+            state.message = null;
+            renderApp();
+        }, 5000);
+    }
+
+    /** Toggles visibility of main UI elements based on auth state */
+    function toggleMainUI(show) {
+        mainHeaderEl.classList.toggle('hidden', !show);
+        mainNavEl.classList.toggle('hidden', !show);
+    }
+    
+    /** Renders the main application content based on the current state */
+    function renderApp() {
+        // Toggle header/nav visibility
+        toggleMainUI(state.isAuthenticated);
+
+        // Render Page Content
+        let html = '';
+        if (state.message) {
+            const color = state.message.isError ? 'bg-red-500' : 'bg-green-500';
+            html += `<div class="p-4 rounded-xl mb-4 text-white font-semibold ${color}">${state.message.text}</div>`;
+        }
+
+        if (state.currentPage === 'loading') {
+             html += `
+                <div class="flex flex-col items-center justify-center p-8 bg-white rounded-xl shadow-lg">
+                    <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500"></div>
+                    <p class="mt-4 text-gray-600">Checking session...</p>
+                </div>
+            `;
+        } else if (state.currentPage === 'login') {
+            html += renderLogin();
+        } else {
+            // Must be authenticated to view other pages
+            
+            // Update Nav Bar Style
+            navButtons.forEach(btn => {
+                const page = btn.id.replace('nav-', '');
+                if (page === state.currentPage) {
+                    btn.classList.add('text-blue-600');
+                    btn.classList.remove('text-gray-500', 'hover:text-blue-600');
+                } else {
+                    btn.classList.remove('text-blue-600');
+                    btn.classList.add('text-gray-500', 'hover:text-blue-600');
+                }
+            });
+
+            // Update Header Wallet Balance
+            walletBalanceDisplayEl.textContent = state.walletBalance.toFixed(0);
+
+            switch (state.currentPage) {
+                case 'tasks':
+                    html += renderTaskList();
+                    break;
+                case 'taskDetail':
+                    html += renderTaskDetail();
+                    break;
+                case 'wallet':
+                    html += renderWallet();
+                    break;
+                case 'withdrawals':
+                    html += renderWithdrawalHistory();
+                    break;
+            }
+        }
+        contentEl.innerHTML = html;
+    }
+
+    // --- AUTHENTICATION FUNCTIONS ---
+
+    window.handleToggleAuthMode = () => {
+        state.isSigningUp = !state.isSigningUp;
+        renderApp();
+    };
+
+    window.handleAuthAction = (mode) => {
+        const usernameEl = document.getElementById('auth-username');
+        const passwordEl = document.getElementById('auth-password');
+        const username = usernameEl.value.trim();
+        const password = passwordEl.value.trim();
+
+        if (!username || !password) {
+            showMessage("Please enter both username and password.", true);
+            return;
+        }
+
+        if (mode === 'signup' && password.length < 6) {
+             showMessage("Password must be at least 6 characters long.", true);
+             return;
+        }
+        
+        // Convert username to email for Firebase
+        const email = username + FAKE_DOMAIN;
+
+        if (mode === 'signup') {
+            handleSignup(email, password);
+        } else {
+            handleLogin(email, password);
+        }
+    };
+    
+    async function handleSignup(email, password) {
+        try {
+            // Create the user with the generated email
+            await createUserWithEmailAndPassword(auth, email, password);
+            showMessage(`Success! Account created for ${email.replace(FAKE_DOMAIN, '')}. Welcome!`, false);
+        } catch (error) {
+            console.error("Signup Error:", error);
+            let errorMessage = "Signup failed. Please try again.";
+            if (error.code === 'auth/email-already-in-use') {
+                errorMessage = "This username is already taken. Try logging in.";
+            } else if (error.code === 'auth/weak-password') {
+                 errorMessage = "Password is too weak. Choose a stronger one.";
+            } else if (error.code === 'auth/invalid-email') {
+                 errorMessage = "Invalid username format.";
+            }
+            showMessage(errorMessage, true);
+        }
+    }
+
+    async function handleLogin(email, password) {
+        try {
+            await signInWithEmailAndPassword(auth, email, password);
+            showMessage(`Welcome back, ${email.replace(FAKE_DOMAIN, '')}!`, false);
+        } catch (error) {
+            console.error("Login Error:", error);
+            let errorMessage = "Login failed. Invalid username or password.";
+            if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found') {
+                 errorMessage = "Invalid username or password.";
+            }
+            showMessage(errorMessage, true);
+        }
+    }
+
+    window.handleLogout = async () => {
+        try {
+            await signOut(auth);
+            showMessage("Logged out successfully.", false);
+            // onAuthStateChanged will handle the state change and redirect to login
+        } catch (error) {
+            console.error("Logout Error:", error);
+            showMessage("Failed to log out.", true);
+        }
+    }
+
+    // --- AUTHENTICATION PAGE RENDERING ---
+
+    function renderLogin() {
+        const mode = state.isSigningUp ? 'Sign Up' : 'Log In';
+        const action = state.isSigningUp ? 'signup' : 'login';
+        const toggleText = state.isSigningUp ? 'Already have an account? Log In' : 'New user? Create an Account';
+
+        return `
+            <div class="bg-white p-6 rounded-xl shadow-xl space-y-6 mt-12">
+                <h2 class="text-3xl font-bold text-center text-blue-600">${mode} to Task Hub</h2>
+                <p class="text-center text-gray-500">Your coins are saved securely!</p>
+
+                <div class="space-y-4">
+                    <label for="auth-username" class="block text-sm font-medium text-gray-700">Username</label>
+                    <input type="text" id="auth-username" placeholder="Choose a unique username" 
+                        class="w-full p-3 border border-gray-300 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none">
+                    
+                    <label for="auth-password" class="block text-sm font-medium text-gray-700">Password</label>
+                    <input type="password" id="auth-password" placeholder="Enter your password (min 6 characters)"
+                        class="w-full p-3 border border-gray-300 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none">
+                </div>
+
+                <button onclick="handleAuthAction('${action}')" 
+                    class="w-full py-3 bg-blue-600 text-white font-bold rounded-xl shadow-md hover:bg-blue-700 transition duration-150 ease-in-out">
+                    ${mode}
+                </button>
+
+                <div class="text-center pt-2">
+                    <button onclick="handleToggleAuthMode()" class="text-sm text-blue-500 hover:text-blue-700">
+                        ${toggleText}
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+
+    // --- PAGE RENDERING FUNCTIONS (REST OF THE APP) ---
+
+    function renderTaskList() {
+        // Filter out completed tasks
+        const availableTasks = state.tasks.filter(task => 
+            !state.completedTaskIds.includes(task.id)
+        );
+
+        let html = `<div class="space-y-4">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">Available Tasks</h2>
+        `;
+
+        if (availableTasks.length === 0) {
+            html += '<p class="text-gray-500 p-4 bg-white rounded-xl shadow-lg border-l-4 border-yellow-500">All available tasks completed! Check back later for new opportunities.</p>';
+        } else {
+            availableTasks.forEach(task => {
+                html += `
+                    <div onclick="changePage('taskDetail', '${task.id}')" class="task-card bg-white p-4 rounded-xl shadow-lg border border-gray-100 cursor-pointer hover:shadow-xl">
+                        <div class="flex justify-between items-center">
+                            <h3 class="text-lg font-semibold text-gray-800">${task.name}</h3>
+                            <div class="flex items-center space-x-1 text-green-600 font-bold bg-green-100 px-3 py-1 rounded-full">
+                                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM9.5 17L5 12.5l1.41-1.41L9.5 14.17l7.09-7.09L18 8l-8.5 9z"></path></svg>
+                                <span>+${task.reward} Coins</span>
+                            </div>
+                        </div>
+                        <p class="text-sm text-gray-500 mt-1">Shorten URL visit & Code Verification</p>
+                    </div>
+                `;
+            });
+        }
+
+        html += '</div>';
+        
+        // The development button is removed from the UI here.
+        
+        return html;
+    }
+
+    function renderTaskDetail() {
+        const task = state.currentTask;
+        if (!task) return `<p class="text-gray-500">Task not found or not selected.</p>`;
+
+        // Check if task is already completed
+        if (state.completedTaskIds.includes(task.id)) {
+            return `
+                <div class="bg-white p-6 rounded-xl shadow-xl text-center border-t-4 border-green-500">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-4">Task Completed!</h2>
+                    <p class="text-gray-600 mb-6">
+                        You have already successfully verified the code for **${task.name}** and claimed the **+${task.reward} Coins**.
+                    </p>
+                    <div class="inline-block p-3 bg-green-100 text-green-700 rounded-full mb-6">
+                         <svg class="w-8 h-8" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM9.5 17L5 12.5l1.41-1.41L9.5 14.17l7.09-7.09L18 8l-8.5 9z"></path></svg>
+                    </div>
+                    <div class="flex justify-center mt-6">
+                        <button onclick="changePage('tasks')" class="text-blue-600 hover:text-blue-800 font-medium">
+                            ← Back to Available Task List
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        return `
+            <div class="bg-white p-6 rounded-xl shadow-xl">
+                <h2 class="text-2xl font-bold text-gray-800 mb-2">${task.name}</h2>
+                <div class="flex items-center space-x-1 text-green-600 font-bold mb-6">
+                    <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM9.5 17L5 12.5l1.41-1.41L9.5 14.17l7.09-7.09L18 8l-8.5 9z"></path></svg>
+                    <span class="text-xl">+${task.reward} Coins Reward</span>
+                </div>
+
+                <p class="text-gray-600 mb-4">
+                    Complete the task below to earn your coins.
+                </p>
+
+                <!-- Step 1: Visit Link -->
+                <div class="border-l-4 border-blue-500 pl-4 py-2 mb-6 bg-blue-50 rounded-r-lg">
+                    <p class="font-semibold text-blue-700 mb-2">Step 1: Visit the URL Shortener Link</p>
+                    <button onclick="startTask('${task.id}')" class="w-full py-3 bg-blue-600 text-white font-bold rounded-xl shadow-md hover:bg-blue-700 transition duration-150 ease-in-out">
+                        Go to Link
+                    </button>
+                    <p class="text-xs text-gray-500 mt-2">A new window will open. Complete the shortener steps, find the secret code, and come back here.</p>
+                </div>
+
+                <!-- Step 2: Paste Code -->
+                <div class="border-l-4 border-purple-500 pl-4 py-2 mb-6 bg-purple-50 rounded-r-lg">
+                    <p class="font-semibold text-purple-700 mb-2">Step 2: Enter Secret Code for Verification</p>
+                    <input type="text" id="verification-code" placeholder="Paste the secret code here" class="w-full p-3 border border-gray-300 rounded-xl focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none">
+                    <button onclick="handleVerification('${task.id}')" class="mt-3 w-full py-3 bg-purple-600 text-white font-bold rounded-xl shadow-md hover:bg-purple-700 transition duration-150 ease-in-out">
+                        Verify Code and Claim Coins
+                    </button>
+                </div>
+
+                <div class="flex justify-center mt-6">
+                    <button onclick="changePage('tasks')" class="text-gray-500 hover:text-gray-700 font-medium">
+                        ← Back to Task List
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+
+    function renderWallet() {
+        const username = auth.currentUser?.email.replace(FAKE_DOMAIN, '') || 'Guest';
+
+        return `
+            <div class="bg-white p-6 rounded-xl shadow-xl space-y-6">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4">Your Wallet</h2>
+
+                <!-- Current Balance Card -->
+                <div class="p-5 bg-blue-600 text-white rounded-xl shadow-lg">
+                    <p class="text-sm font-medium opacity-80">Welcome, ${username}!</p>
+                    <p class="text-4xl font-extrabold mt-1">${state.walletBalance.toFixed(0)} Coins</p>
+                    <p class="text-xs mt-2 opacity-70">User ID: <span class="font-mono">${userId.substring(0, 8)}...</span> (For support)</p>
+                </div>
+
+                <!-- Withdrawal Form -->
+                <div class="border-t pt-6">
+                    <h3 class="text-xl font-semibold text-gray-800 mb-3">Request Withdrawal (Min 1000 Coins)</h3>
+                    <div id="withdrawal-message" class="hidden p-3 mb-3 text-sm rounded-lg"></div>
+
+                    <label for="upiId" class="block text-sm font-medium text-gray-700 mb-1">Enter UPI ID</label>
+                    <input type="text" id="upiId" placeholder="e.g., yourname@bank.com" class="w-full p-3 border border-gray-300 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none mb-3">
+
+                    <label for="amount" class="block text-sm font-medium text-gray-700 mb-1">Amount to Withdraw (Coins)</label>
+                    <input type="number" id="amount" placeholder="Minimum 1000" class="w-full p-3 border border-gray-300 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none mb-4">
+
+                    <button onclick="requestWithdrawal()" class="w-full py-3 bg-green-500 text-white font-bold rounded-xl shadow-md hover:bg-green-600 transition duration-150 ease-in-out">
+                        Submit Withdrawal Request
+                    </button>
+                </div>
+
+                <button onclick="changePage('withdrawals')" class="w-full mt-4 py-2 text-blue-600 border border-blue-600 rounded-xl hover:bg-blue-50 transition duration-150 ease-in-out">
+                    View Withdrawal History
+                </button>
+            </div>
+        `;
+    }
+
+    function renderWithdrawalHistory() {
+        const sortedWithdrawals = state.withdrawals.sort((a, b) => b.requestedAt.toDate() - a.requestedAt.toDate());
+
+        let html = `<div class="space-y-4">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">Withdrawal History</h2>
+            <div class="flex justify-center mb-4">
+                <p class="text-sm text-gray-500">Your User ID: <span class="font-mono text-gray-700 break-all">${userId}</span></p>
+            </div>
+            ${sortedWithdrawals.length === 0 ? '<p class="text-gray-500">No withdrawal requests found.</p>' : ''}
+        `;
+
+        sortedWithdrawals.forEach(w => {
+            const isPaid = w.status === 'Paid';
+            const statusColor = isPaid ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700';
+            const statusText = isPaid ? 'Paid' : 'Pending';
+            const date = w.requestedAt ? new Date(w.requestedAt.seconds * 1000).toLocaleDateString() : 'N/A';
+
+            html += `
+                <div class="bg-white p-4 rounded-xl shadow-lg border border-gray-100">
+                    <div class="flex justify-between items-center mb-1">
+                        <p class="font-semibold text-gray-800">${w.amount} Coins</p>
+                        <span class="text-xs font-medium py-1 px-3 rounded-full ${statusColor}">${statusText}</span>
+                    </div>
+                    <p class="text-sm text-gray-500">UPI: ${w.upiId}</p>
+                    <p class="text-xs text-gray-400 mt-1">Requested on: ${date}</p>
+                </div>
+            `;
+        });
+
+        html += `<div class="mt-6 text-center">
+            <button onclick="changePage('wallet')" class="text-blue-500 hover:text-blue-700 font-medium">
+                ← Go back to Wallet
+            </button>
+        </div></div>`;
+        return html;
+    }
+
+    // --- NAVIGATION AND STATE CONTROL ---
+
+    /** Changes the current page view */
+    window.changePage = (page, taskId = null) => {
+        // Ensure we don't try to navigate away from login if not authenticated
+        if (!state.isAuthenticated && page !== 'login') {
+            state.currentPage = 'login';
+        } else {
+            state.currentPage = page;
+            state.currentTask = null;
+            if (page === 'taskDetail' && taskId) {
+                const task = state.tasks.find(t => t.id === taskId);
+                state.currentTask = task;
+            }
+        }
+        renderApp();
+    };
+
+    // --- TASK LOGIC ---
+
+    /** Redirects the user to the external URL shortener link */
+    window.startTask = (taskId) => {
+        const task = state.tasks.find(t => t.id === taskId);
+        if (task && task.targetUrl) {
+            // Open the URL in a new window/tab
+            window.open(task.targetUrl, '_blank');
+            showMessage("Link opened! Find the code and paste it below.", false);
+        } else {
+            showMessage("Error: Task URL not found.", true);
+        }
+    };
+
+    /** Handles the code verification and coin update logic */
+    window.handleVerification = async (taskId) => {
+        const inputCodeEl = document.getElementById('verification-code');
+        const inputCode = inputCodeEl ? inputCodeEl.value.trim() : '';
+
+        if (!inputCode) {
+            showMessage("Please enter the secret code you copied.", true);
+            return;
+        }
+
+        const task = state.tasks.find(t => t.id === taskId);
+        if (!task) {
+            showMessage("Error: Task not found.", true);
+            return;
+        }
+
+        // Check if already completed (double-check needed for UI/UX)
+        if (state.completedTaskIds.includes(taskId)) {
+             showMessage("This task is already marked as completed.", true);
+             return;
+        }
+
+        if (inputCode.toLowerCase() === task.secretCode.toLowerCase()) {
+            // Firestore paths use the configured appId ('kaamsetu-dc4a2')
+            const walletRef = doc(db, `artifacts/${appId}/users/${userId}/wallet/main`);
+            const completedTaskRef = doc(db, `artifacts/${appId}/users/${userId}/completedTasks/${taskId}`);
+
+            try {
+                // 1. Update wallet: increment coins
+                const newBalance = state.walletBalance + task.reward;
+                await setDoc(walletRef, {
+                    coins: newBalance,
+                    updatedAt: new Date()
+                }, { merge: true });
+
+                // 2. Mark task as completed for this user (This triggers the listener to update state)
+                await setDoc(completedTaskRef, {
+                    taskId: taskId,
+                    completedAt: new Date(),
+                    reward: task.reward
+                });
+
+                showMessage(`Success! +${task.reward} Coins added and task hidden!`, false);
+                // Go back to the task list after success
+                changePage('tasks');
+
+            } catch (error) {
+                console.error("Error updating wallet/marking completion:", error);
+                showMessage("An error occurred while claiming coins. Check console for details.", true);
+            }
+        } else {
+            showMessage("Verification Failed. The code is incorrect. Please try again.", true);
+        }
+    };
+
+    // --- WALLET AND WITHDRAWAL LOGIC ---
+
+    /** Submits a withdrawal request */
+    window.requestWithdrawal = async () => {
+        const upiIdEl = document.getElementById('upiId');
+        const amountEl = document.getElementById('amount');
+        const upiId = upiIdEl.value.trim();
+        const amount = parseInt(amountEl.value, 10);
+        const minWithdrawal = 1000;
+
+        if (!upiId || upiId.length < 5) {
+            showMessage("Please enter a valid UPI ID.", true);
+            return;
+        }
+        if (isNaN(amount) || amount < minWithdrawal) {
+            showMessage(`Minimum withdrawal is ${minWithdrawal} Coins.`, true);
+            return;
+        }
+        if (amount > state.walletBalance) {
+            showMessage("You do not have enough coins for this withdrawal.", true);
+            return;
+        }
+
+        const withdrawalsCollection = collection(db, `artifacts/${appId}/users/${userId}/withdrawals`);
+        const walletRef = doc(db, `artifacts/${appId}/users/${userId}/wallet/main`);
+
+        try {
+            // 1. Create the withdrawal request document
+            await addDoc(withdrawalsCollection, {
+                userId: userId,
+                upiId: upiId,
+                amount: amount,
+                status: 'Pending', // Owner manually changes this to 'Paid' in Firestore
+                requestedAt: new Date(),
+            });
+
+            // 2. Deduct the amount from the wallet
+            const newBalance = state.walletBalance - amount;
+            await updateDoc(walletRef, { coins: newBalance });
+
+            // 3. Clear form and show success
+            upiIdEl.value = '';
+            amountEl.value = '';
+            showMessage("Withdrawal request submitted! Status is Pending.", false);
+            changePage('withdrawals');
+
+        } catch (error) {
+            console.error("Error requesting withdrawal:", error);
+            showMessage("An error occurred during withdrawal request. Check console for details.", true);
+        }
+    };
+
+    // --- FIREBASE LISTENERS ---
+
+    // Place all listeners in an object to easily start/stop them
+    const listeners = {};
+
+    function startListeners(uid) {
+        if (!uid) return;
+
+        // Listener 1: Public Tasks
+        const tasksCollection = collection(db, `artifacts/${appId}/public/data/tasks`);
+        listeners.tasks = onSnapshot(query(tasksCollection), (snapshot) => {
+            const newTasks = [];
+            snapshot.forEach((doc) => newTasks.push({ id: doc.id, ...doc.data() }));
+            state.tasks = newTasks;
+            if (state.currentPage === 'tasks') renderApp();
+        }, (error) => console.error("Error listening to tasks:", error));
+
+        // Listener 2: User Wallet
+        const walletRef = doc(db, `artifacts/${appId}/users/${uid}/wallet/main`);
+        listeners.wallet = onSnapshot(walletRef, (docSnap) => {
+            let initialBalance = 0;
+            if (docSnap.exists()) {
+                initialBalance = docSnap.data().coins || 0;
+            } else {
+                // Initialize wallet for new users
+                setDoc(walletRef, { coins: 0, createdAt: new Date() }).catch(e => console.error("Error initializing wallet:", e));
+            }
+            state.walletBalance = initialBalance;
+            walletBalanceDisplayEl.textContent = initialBalance.toFixed(0);
+            renderApp();
+        }, (error) => console.error("Error listening to wallet:", error));
+
+        // Listener 3: Completed Tasks
+        const completedCollection = collection(db, `artifacts/${appId}/users/${uid}/completedTasks`);
+        listeners.completedTasks = onSnapshot(completedCollection, (snapshot) => {
+            const completedIds = [];
+            snapshot.forEach((doc) => completedIds.push(doc.id));
+            state.completedTaskIds = completedIds;
+            renderApp();
+        }, (error) => console.error("Error listening to completed tasks:", error));
+
+        // Listener 4: Withdrawals
+        const withdrawalsCollection = collection(db, `artifacts/${appId}/users/${uid}/withdrawals`);
+        const q = query(withdrawalsCollection, orderBy("requestedAt", "desc"), limit(50));
+        listeners.withdrawals = onSnapshot(q, (snapshot) => {
+            const newWithdrawals = [];
+            snapshot.forEach((doc) => newWithdrawals.push({ id: doc.id, ...doc.data() }));
+            state.withdrawals = newWithdrawals;
+            if (state.currentPage === 'withdrawals') renderApp();
+        }, (error) => console.error("Error listening to withdrawals:", error));
+    }
+
+    /** Stops all active Firestore listeners and clears local state */
+    function stopListeners() {
+        Object.values(listeners).forEach(unsubscribe => unsubscribe());
+        state.tasks = [];
+        state.walletBalance = 0;
+        state.completedTaskIds = [];
+        state.withdrawals = [];
+    }
+
+    // --- INITIALIZATION ---
+
+    async function initApp() {
+        try {
+            setLogLevel('debug');
+
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            
+            // Set up Auth State Observer
+            onAuthStateChanged(auth, (user) => {
+                stopListeners();
+
+                if (user) {
+                    // Logged In
+                    userId = user.uid;
+                    state.isAuthenticated = true;
+                    state.currentPage = 'tasks'; 
+                    startListeners(userId);
+                } else {
+                    // Logged Out
+                    userId = null;
+                    state.isAuthenticated = false;
+                    state.currentPage = 'login';
+                }
+                state.isAuthReady = true;
+                renderApp();
+            });
+
+        } catch (error) {
+            console.error("Firebase Initialization Error:", error);
+            contentEl.innerHTML = `<div class="p-8 bg-red-100 text-red-700 rounded-xl">Fatal Error: Cannot connect to services. Check console.</div>`;
+        }
+    }
+
+    // --- DEVELOPMENT TOOL: SAMPLE DATA ---
+
+    /** Creates sample tasks for testing. Only runs if no tasks exist. 
+     * NOTE: This function is kept for development but is no longer linked to the UI.
+     */
+    window.createSampleData = async () => {
+        const tasksCollection = collection(db, `artifacts/${appId}/public/data/tasks`);
+        const snapshot = await getDocs(tasksCollection);
+
+        if (snapshot.empty) {
+            const sampleTasks = [
+                { name: "Daily Link Visit (1)", targetUrl: "https://www.google.com/search?q=Task1+CodeIsA1B2C3", reward: 50, secretCode: "CodeIsA1B2C3" },
+                { name: "Special Offer Link (2)", targetUrl: "https://www.google.com/search?q=Task2+SECRETCODE789", reward: 150, secretCode: "SECRETCODE789" },
+                { name: "High Reward Survey Link (3)", targetUrl: "https://www.google.com/search?q=Task3+COINMASTER500", reward: 500, secretCode: "COINMASTER500" },
+            ];
+
+            for (const task of sampleTasks) {
+                await addDoc(tasksCollection, task);
+            }
+            showMessage("Sample tasks added! (Dev Only).", false);
+        } else {
+            showMessage("Tasks already exist. Not adding sample data.", true);
+        }
+    };
+
+    // Start the application
+    initApp();
+
+    // Export functions to the global scope for inline onclick events
+    window.handleVerification = handleVerification;
+    window.requestWithdrawal = requestWithdrawal;
+</script>
+
+</body>
+</html>
