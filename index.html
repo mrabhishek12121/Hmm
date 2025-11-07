@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coin Task Hub</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .container-mobile {
+            max-width: 420px;
+        }
+        /* Mobile-first scrollable area, accommodating header/footer */
+        .scrollable {
+            max-height: calc(100vh - 120px); 
+            overflow-y: auto;
+            padding-bottom: 70px; /* Space for the fixed nav bar */
+        }
+        .scrollable::-webkit-scrollbar {
+            width: 4px;
+        }
+        .scrollable::-webkit-scrollbar-thumb {
+            background-color: #3b82f6;
+            border-radius: 2px;
+        }
+        .task-card, .dashboard-card {
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .task-card:active {
+            transform: scale(0.98);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+        }
+        /* Custom styles for owner dashboard - wider view is allowed but constrained */
+        .owner-dashboard {
+            max-width: 800px;
+            margin: auto;
+        }
+    </style>
+</head>
+<body>
+
+<div id="app" class="min-h-screen flex flex-col items-center p-0">
+    <!-- Main Header (Only Visible When Authenticated) -->
+    <header id="main-header" class="w-full bg-white shadow-md sticky top-0 z-20 hidden">
+        <div id="header-content" class="container-mobile mx-auto flex justify-between items-center p-4">
+            <!-- Content changes based on user/owner -->
+        </div>
+    </header>
+
+    <main class="w-full flex-grow p-4">
+        <div id="content" class="container-mobile mx-auto scrollable">
+            <!-- Content/Login/Loading will be rendered here -->
+            <div class="flex flex-col items-center justify-center p-8 bg-white rounded-xl shadow-lg">
+                <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500"></div>
+                <p class="mt-4 text-gray-600">Checking session...</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Navigation Bar for Mobile (Only Visible When Authenticated USER) -->
+    <nav id="main-nav" class="fixed bottom-0 w-full bg-white shadow-2xl rounded-t-xl z-20 hidden">
+        <!-- Navigation buttons for tasks, wallet, and history -->
+    </nav>
+
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { 
+        getAuth, 
+        onAuthStateChanged, 
+        createUserWithEmailAndPassword, 
+        signInWithEmailAndPassword,    
+        signOut,                       
+    } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, onSnapshot, collection, query, addDoc, updateDoc, where, orderBy, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // --- FIREBASE CONFIGURATION (Placeholder for Canvas Environment) ---
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+      apiKey: "AIzaSyC66x_An6ugRrybRUsNWEyJmVeMULpEcFw",
+      authDomain: "kaamsetu-dc4a2.firebaseapp.com",
+      projectId: "kaamsetu-dc4a2",
+      storageBucket: "kaamsetu-dc4a2.firebasestorage.app",
+      messagingSenderId: "171235077454",
+      appId: "1:171235077454:web:22e239c416846ecc6f421f",
+      measurementId: "G-1LMZ7T0L0C"
+    };
+    const appId = typeof __app_id !== 'undefined' ? __app_id : firebaseConfig.projectId; 
+    
+    // --- OWNER CONFIGURATION ---
+    const FAKE_DOMAIN = '@taskhub.com'; // Used to convert username to Firebase-compatible email
+    const OWNER_USERNAME = 'owner'; 
+    const OWNER_EMAIL = OWNER_USERNAME + FAKE_DOMAIN;
+
+    let app;
+    let db;
+    let auth;
+    let userId = null; 
+
+    // --- APPLICATION STATE ---
+    let state = {
+        isAuthenticated: false,
+        isOwner: false, 
+        currentPage: 'loading',
+        currentTask: null,
+        walletBalance: 0,
+        tasks: [],
+        completedTaskIds: [], 
+        withdrawals: [], 
+        allWithdrawalRequests: [], 
+        message: null, 
+        isSigningUp: false,
+    };
+
+    // --- UI ELEMENTS ---
+    const contentEl = document.getElementById('content');
+    const mainHeaderEl = document.getElementById('main-header');
+    const mainNavEl = document.getElementById('main-nav');
+    const headerContentEl = document.getElementById('header-content'); 
+
+    // --- HELPER FUNCTIONS ---
+
+    /** Displays a temporary message to the user */
+    function showMessage(text, isError = false) {
+        state.message = { text, isError };
+        renderApp();
+        setTimeout(() => {
+            state.message = null;
+            renderApp();
+        }, 5000);
+    }
+
+    /** Renders the main application content based on the current state */
+    function renderApp() {
+        const username = auth.currentUser?.email.replace(FAKE_DOMAIN, '') || 'Guest';
+
+        // 1. Render Header Content
+        if (state.isAuthenticated) {
+            mainHeaderEl.classList.remove('hidden');
+            if (state.isOwner) {
+                headerContentEl.innerHTML = `
+                    <h1 class="text-xl font-bold text-red-600">Owner Dashboard</h1>
+                    <div class="flex items-center space-x-3">
+                        <span class="text-sm font-semibold text-gray-700">Hi, ${username}!</span>
+                        <button onclick="handleLogout()" class="text-sm text-gray-500 hover:text-red-500 font-medium">Logout</button>
+                    </div>
+                `;
+                mainNavEl.classList.add('hidden'); // Owner uses dedicated dashboard navigation
+            } else {
+                headerContentEl.innerHTML = `
+                    <h1 class="text-xl font-bold text-gray-800">Task Hub</h1>
+                    <div class="flex items-center space-x-3">
+                        <button onclick="changePage('wallet')" class="flex items-center space-x-2 bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-3 rounded-full shadow-lg transition duration-150 ease-in-out">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                            <span id="wallet-balance-display">${state.walletBalance.toFixed(0)}</span>
+                        </button>
+                        <button onclick="handleLogout()" class="text-sm text-gray-500 hover:text-red-500 font-medium">Logout</button>
+                    </div>
+                `;
+                 // Update Nav Bar Style for regular user
+                mainNavEl.classList.remove('hidden');
+                mainNavEl.innerHTML = renderUserNav();
+                document.querySelectorAll('.nav-button').forEach(btn => {
+                    const page = btn.id.replace('nav-', '');
+                    if (page === state.currentPage) {
+                        btn.classList.add('text-blue-600');
+                        btn.classList.remove('text-gray-500', 'hover:text-blue-600');
+                    } else {
+                        btn.classList.remove('text-blue-600');
+                        btn.classList.add('text-gray-500', 'hover:text-blue-600');
+                    }
+                });
+            }
+        } else {
+            mainHeaderEl.classList.add('hidden');
+            mainNavEl.classList.add('hidden');
+        }
+
+        // 2. Render Page Content
+        let html = '';
+        if (state.message) {
+            const color = state.message.isError ? 'bg-red-500' : 'bg-green-500';
+            html += `<div class="p-4 rounded-xl mb-4 text-white font-semibold ${color}">${state.message.text}</div>`;
+        }
+
+        switch (state.currentPage) {
+            case 'loading':
+                html += `
+                    <div class="flex flex-col items-center justify-center p-8 bg-white rounded-xl shadow-lg">
+                        <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500"></div>
+                        <p class="mt-4 text-gray-600">Checking session...</p>
+                    </div>
+                `;
+                break;
+            case 'login':
+                html += renderLogin();
+                break;
+            case 'tasks':
+                html += renderTaskList();
+                break;
+            case 'taskDetail':
+                html += renderTaskDetail();
+                break;
+            case 'wallet':
+                html += renderWallet();
+                break;
+            case 'withdrawals':
+                html += renderWithdrawalHistory();
+                break;
+            case 'ownerDashboard':
+                html += renderOwnerDashboard();
+                break;
+        }
+
+        contentEl.innerHTML = html;
+    }
+
+    function renderUserNav() {
+        return `
+            <div class="container-mobile mx-auto flex justify-around items-center h-16">
+                <button id="nav-tasks" onclick="changePage('tasks')" class="nav-button flex flex-col items-center p-2 text-gray-500 hover:text-blue-600">
+                    <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M9 2a1 1 0 00-1 1v1H5a2 2 0 00-2 2v10a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2h-3V3a1 1 0 10-2 0v1H9V3a1 1 0 00-1-1zm0 4h6v1a1 1 0 102 0V6h3v10a1 1 0 01-1 1H5a1 1 0 01-1-1V6h3v1a1 1 0 102 0V6z"></path></svg>
+                    <span class="text-xs font-medium">Tasks</span>
+                </button>
+                <button id="nav-wallet" onclick="changePage('wallet')" class="nav-button flex flex-col items-center p-2 text-gray-500 hover:text-blue-600">
+                    <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M10 2a2 2 0 00-2 2v3.586l-.707.707A2 2 0 007 9.586V19a2 2 0 002 2h10a2 2 0 002-2V9.586a2 2 0 00-.586-1.414l-.707-.707V4a2 2 0 00-2-2H10zm-1 9a1 1 0 011-1h4a1 1 0 110 2h-4a1 1 0 01-1-1z" clip-rule="evenodd"></path></svg>
+                    <span class="text-xs font-medium">Wallet</span>
+                </button>
+                <button id="nav-withdrawals" onclick="changePage('withdrawals')" class="nav-button flex flex-col items-center p-2 text-gray-500 hover:text-blue-600">
+                    <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 18a8 8 0 110-16 8 8 0 010 16zm-1-8H8a1 1 0 000 2h3v3a1 1 0 002 0v-3h3a1 1 0 000-2h-3V8a1 1 0 00-2 0v3z"></path></svg>
+                    <span class="text-xs font-medium">History</span>
+                </button>
+            </div>
+        `;
+    }
+
+    // --- AUTHENTICATION FUNCTIONS ---
+
+    window.handleToggleAuthMode = () => {
+        state.isSigningUp = !state.isSigningUp;
+        renderApp();
+    };
+
+    window.handleAuthAction = (mode) => {
+        const usernameEl = document.getElementById('auth-username');
+        const passwordEl = document.getElementById('auth-password');
+        const username = usernameEl.value.trim();
+        const password = passwordEl.value.trim();
+
+        if (!username || !password) {
+            showMessage("Please enter both username and password.", true);
+            return;
+        }
+        
+        // Convert username to email for Firebase
+        const email = username + FAKE_DOMAIN;
+
+        if (mode === 'signup') {
+            if (password.length < 6) { showMessage("Password must be at least 6 characters long.", true); return; }
+            handleSignup(email, password);
+        } else {
+            handleLogin(email, password);
+        }
+    };
+    
+    async function handleSignup(email, password) {
+        try {
+            await createUserWithEmailAndPassword(auth, email, password);
+            showMessage(`Success! Account created for ${email.replace(FAKE_DOMAIN, '')}. Welcome!`, false);
+        } catch (error) {
+            console.error("Signup Error:", error);
+            let errorMessage = "Signup failed. Please try again.";
+            if (error.code === 'auth/email-already-in-use') { errorMessage = "This username is already taken. Try logging in."; }
+            showMessage(errorMessage, true);
+        }
+    }
+
+    async function handleLogin(email, password) {
+        try {
+            await signInWithEmailAndPassword(auth, email, password);
+            showMessage(`Welcome back!`, false);
+        } catch (error) {
+            console.error("Login Error:", error);
+            showMessage("Login failed. Invalid username or password.", true);
+        }
+    }
+
+    window.handleLogout = async () => {
+        try {
+            await signOut(auth);
+            showMessage("Logged out successfully.", false);
+        } catch (error) {
+            console.error("Logout Error:", error);
+            showMessage("Failed to log out.", true);
+        }
+    }
+
+    function renderLogin() {
+        const mode = state.isSigningUp ? 'Sign Up' : 'Log In';
+        const action = state.isSigningUp ? 'signup' : 'login';
+        const toggleText = state.isSigningUp ? 'Already have an account? Log In' : 'New user? Create an Account';
+
+        return `
+            <div class="bg-white p-6 rounded-xl shadow-xl space-y-6 mt-12">
+                <h2 class="text-3xl font-bold text-center text-blue-600">${mode} to Task Hub</h2>
+                <p class="text-center text-gray-500">Your coins are saved securely!</p>
+
+                <div class="space-y-4">
+                    <label for="auth-username" class="block text-sm font-medium text-gray-700">Username</label>
+                    <input type="text" id="auth-username" placeholder="Enter your username (e.g., john_doe or ${OWNER_USERNAME})" 
+                        class="w-full p-3 border border-gray-300 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none">
+                    
+                    <label for="auth-password" class="block text-sm font-medium text-gray-700">Password</label>
+                    <input type="password" id="auth-password" placeholder="Enter your password"
+                        class="w-full p-3 border border-gray-300 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none">
+                </div>
+
+                <button onclick="handleAuthAction('${action}')" 
+                    class="w-full py-3 bg-blue-600 text-white font-bold rounded-xl shadow-md hover:bg-blue-700 transition duration-150 ease-in-out">
+                    ${mode}
+                </button>
+
+                <div class="text-center pt-2">
+                    <button onclick="handleToggleAuthMode()" class="text-sm text-blue-500 hover:text-blue-700">
+                        ${toggleText}
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+
+    // --- USER PAGE RENDERING FUNCTIONS ---
+
+    function renderTaskList() {
+        // Tasks are already sorted by the listener (newest first)
+        const availableTasks = state.tasks.filter(task => 
+            !state.completedTaskIds.includes(task.id)
+        );
+        let html = `<div class="space-y-4">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">Available Tasks</h2>
+        `;
+        if (availableTasks.length === 0) {
+            html += '<p class="text-gray-500 p-4 bg-white rounded-xl shadow-lg border-l-4 border-yellow-500">All available tasks completed, or no tasks published yet. Check back later!</p>';
+        } else {
+            availableTasks.forEach(task => {
+                html += `
+                    <div onclick="changePage('taskDetail', '${task.id}')" class="task-card bg-white p-4 rounded-xl shadow-lg border border-gray-100 cursor-pointer hover:shadow-xl">
+                        <div class="flex justify-between items-center">
+                            <h3 class="text-lg font-semibold text-gray-800">${task.name}</h3>
+                            <div class="flex items-center space-x-1 text-green-600 font-bold bg-green-100 px-3 py-1 rounded-full">
+                                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM9.5 17L5 12.5l1.41-1.41L9.5 14.17l7.09-7.09L18 8l-8.5 9z"></path></svg>
+                                <span>+${task.reward} Coins</span>
+                            </div>
+                        </div>
+                        <p class="text-sm text-gray-500 mt-1">Visit Link & Code Verification</p>
+                    </div>
+                `;
+            });
+        }
+        html += '</div>';
+        return html;
+    }
+
+    function renderTaskDetail() {
+        const task = state.currentTask;
+        if (!task) return `<p class="text-gray-500">Task not found or not selected.</p>`;
+        if (state.completedTaskIds.includes(task.id)) {
+            return `<div class="bg-white p-6 rounded-xl shadow-xl text-center border-t-4 border-green-500">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-4">Task Completed!</h2>
+                    <p class="text-gray-600 mb-6">You have already claimed the **+${task.reward} Coins**.</p>
+                    <div class="flex justify-center mt-6">
+                        <button onclick="changePage('tasks')" class="text-blue-600 hover:text-blue-800 font-medium">← Back to Tasks</button>
+                    </div>
+                </div>`;
+        }
+
+        return `
+            <div class="bg-white p-6 rounded-xl shadow-xl">
+                <h2 class="text-2xl font-bold text-gray-800 mb-2">${task.name}</h2>
+                <div class="flex items-center space-x-1 text-green-600 font-bold mb-6">
+                    <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM9.5 17L5 12.5l1.41-1.41L9.5 14.17l7.09-7.09L18 8l-8.5 9z"></path></svg>
+                    <span class="text-xl">+${task.reward} Coins Reward</span>
+                </div>
+                <div class="border-l-4 border-blue-500 pl-4 py-2 mb-6 bg-blue-50 rounded-r-lg">
+                    <p class="font-semibold text-blue-700 mb-2">Step 1: Visit the URL</p>
+                    <button onclick="startTask('${task.id}')" class="w-full py-3 bg-blue-600 text-white font-bold rounded-xl shadow-md hover:bg-blue-700">Go to Link</button>
+                    <p class="text-xs text-gray-500 mt-2">Find the secret code on the target page.</p>
+                </div>
+                <div class="border-l-4 border-purple-500 pl-4 py-2 mb-6 bg-purple-50 rounded-r-lg">
+                    <p class="font-semibold text-purple-700 mb-2">Step 2: Enter Secret Code</p>
+                    <input type="text" id="verification-code" placeholder="Paste the secret code here" class="w-full p-3 border border-gray-300 rounded-xl focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none">
+                    <button onclick="handleVerification('${task.id}')" class="mt-3 w-full py-3 bg-purple-600 text-white font-bold rounded-xl shadow-md hover:bg-purple-700">Verify Code and Claim Coins</button>
+                </div>
+                <button onclick="changePage('tasks')" class="text-gray-500 hover:text-gray-700 font-medium">← Back to Task List</button>
+            </div>
+        `;
+    }
+
+    function renderWallet() {
+        const username = auth.currentUser?.email.replace(FAKE_DOMAIN, '') || 'Guest';
+        const canWithdraw = state.walletBalance >= 1000;
+        const withdrawButtonClass = canWithdraw ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-400 cursor-not-allowed';
+        const minWithdrawal = 1000;
+
+        return `
+            <div class="bg-white p-6 rounded-xl shadow-xl space-y-6">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4">Your Wallet</h2>
+                <div class="p-5 bg-blue-600 text-white rounded-xl shadow-lg">
+                    <p class="text-sm font-medium opacity-80">Welcome, ${username}!</p>
+                    <p class="text-4xl font-extrabold mt-1">${state.walletBalance.toFixed(0)} Coins</p>
+                    <p class="text-xs mt-2 opacity-70">User ID: <span class="font-mono">${userId}</span></p>
+                </div>
+
+                <div class="border-t pt-6">
+                    <h3 class="text-xl font-semibold text-gray-800 mb-3">Request Withdrawal (Min ${minWithdrawal} Coins)</h3>
+                    ${state.walletBalance === 0 ? 
+                        `<p class="p-3 mb-4 bg-red-100 text-red-800 rounded-lg text-sm font-bold">You cannot withdraw. Your wallet balance is 0 coins.</p>` :
+                        !canWithdraw ? 
+                        `<p class="p-3 mb-4 bg-yellow-100 text-yellow-800 rounded-lg text-sm">You need at least ${minWithdrawal} Coins to withdraw. Current balance: ${state.walletBalance.toFixed(0)}</p>` 
+                        : ''}
+
+                    <label for="upiId" class="block text-sm font-medium text-gray-700 mb-1">Enter UPI ID</label>
+                    <input type="text" id="upiId" placeholder="e.g., yourname@bank.com" class="w-full p-3 border border-gray-300 rounded-xl outline-none mb-3">
+
+                    <label for="amount" class="block text-sm font-medium text-gray-700 mb-1">Amount to Withdraw (Coins)</label>
+                    <input type="number" id="amount" placeholder="Minimum ${minWithdrawal}" class="w-full p-3 border border-gray-300 rounded-xl outline-none mb-4">
+
+                    <button onclick="requestWithdrawal()" ${!canWithdraw ? 'disabled' : ''} 
+                        class="w-full py-3 text-white font-bold rounded-xl shadow-md transition duration-150 ${withdrawButtonClass}">
+                        Submit Withdrawal Request
+                    </button>
+                </div>
+                <button onclick="changePage('withdrawals')" class="w-full mt-4 py-2 text-blue-600 border border-blue-600 rounded-xl hover:bg-blue-50">
+                    View Withdrawal History
+                </button>
+            </div>
+        `;
+    }
+
+    function renderWithdrawalHistory() {
+        const sortedWithdrawals = state.withdrawals.sort((a, b) => {
+            const dateA = a.requestedAt ? a.requestedAt.toDate() : new Date(0);
+            const dateB = b.requestedAt ? b.requestedAt.toDate() : new Date(0);
+            return dateB - dateA;
+        });
+
+        let html = `<div class="space-y-4">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">My Withdrawal History</h2>
+            ${sortedWithdrawals.length === 0 ? '<p class="text-gray-500">No withdrawal requests found.</p>' : ''}
+        `;
+
+        sortedWithdrawals.forEach(w => {
+            let statusColor, statusIcon, statusText;
+            if (w.status === 'Paid') {
+                statusColor = 'bg-green-100 text-green-700';
+                statusIcon = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`;
+                statusText = 'Paid';
+            } else if (w.status === 'Rejected') {
+                 statusColor = 'bg-red-100 text-red-700';
+                 statusIcon = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`;
+                 statusText = 'Rejected';
+            } else {
+                statusColor = 'bg-yellow-100 text-yellow-700';
+                statusIcon = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`;
+                statusText = 'Pending';
+            }
+
+            const date = w.requestedAt ? new Date(w.requestedAt.seconds * 1000).toLocaleDateString() : 'N/A';
+
+            html += `
+                <div class="bg-white p-4 rounded-xl shadow-lg border border-gray-100">
+                    <div class="flex justify-between items-start mb-1">
+                        <p class="font-bold text-xl text-gray-800">${w.amount} Coins</p>
+                        <span class="text-xs font-medium py-1 px-3 rounded-full flex items-center space-x-1 ${statusColor}">${statusIcon}<span>${statusText}</span></span>
+                    </div>
+                    <p class="text-sm text-gray-500">UPI: ${w.upiId}</p>
+                    <p class="text-xs text-gray-400 mt-1">Requested on: ${date}</p>
+                    ${w.status === 'Rejected' ? `<p class="text-xs text-red-500 mt-1 italic">Reason: ${w.rejectionReason || 'Not provided'}</p>` : ''}
+                </div>
+            `;
+        });
+
+        html += `<div class="mt-6 text-center">
+            <button onclick="changePage('wallet')" class="text-blue-500 hover:text-blue-700 font-medium">← Go back to Wallet</button>
+        </div></div>`;
+        return html;
+    }
+
+    // --- OWNER DASHBOARD FUNCTIONS ---
+
+    function renderOwnerDashboard() {
+        if (!state.isOwner) return `<p class="text-red-500">Access Denied.</p>`;
+        
+        const totalPending = state.allWithdrawalRequests.filter(r => r.status === 'Pending').length;
+        const totalAmount = state.allWithdrawalRequests.filter(r => r.status === 'Pending').reduce((sum, r) => sum + r.amount, 0);
+
+        return `
+            <div class="owner-dashboard space-y-8">
+                <h2 class="text-3xl font-bold text-red-600 mb-6">Admin Overview</h2>
+
+                <!-- Summary Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="bg-white p-5 rounded-xl shadow-lg border-l-4 border-yellow-500">
+                        <p class="text-sm text-gray-500">Pending Requests</p>
+                        <p class="text-3xl font-extrabold text-gray-800">${totalPending}</p>
+                    </div>
+                    <div class="bg-white p-5 rounded-xl shadow-lg border-l-4 border-green-500">
+                        <p class="text-sm text-gray-500">Total Pending Coin Value</p>
+                        <p class="text-3xl font-extrabold text-gray-800">${totalAmount.toFixed(0)}</p>
+                    </div>
+                </div>
+
+                <!-- Withdrawal Management -->
+                ${renderWithdrawalManagement()}
+
+                <!-- Task Creation -->
+                ${renderTaskCreator()}
+                
+                <!-- Existing Tasks List -->
+                ${renderExistingTasks()} 
+
+            </div>
+        `;
+    }
+    
+    function renderWithdrawalManagement() {
+        // Sort pending requests by oldest first
+        const pendingRequests = state.allWithdrawalRequests.filter(r => r.status === 'Pending').sort((a, b) => {
+            const dateA = a.requestedAt ? a.requestedAt.toDate() : new Date(0);
+            const dateB = b.requestedAt ? b.requestedAt.toDate() : new Date(0);
+            return dateA - dateB; 
+        });
+        
+        // Sort other requests (Paid/Rejected) by newest first
+        const otherRequests = state.allWithdrawalRequests.filter(r => r.status !== 'Pending').sort((a, b) => {
+            const dateA = a.statusUpdatedAt ? a.statusUpdatedAt.toDate() : new Date(0);
+            const dateB = b.statusUpdatedAt ? b.statusUpdatedAt.toDate() : new Date(0);
+            return dateB - dateA;
+        });
+
+        return `
+            <div class="space-y-4">
+                <h3 class="text-2xl font-bold text-gray-800 border-b pb-2">1. Withdrawal Management (${pendingRequests.length} Pending)</h3>
+
+                <div class="p-4 bg-yellow-50 rounded-xl text-yellow-800 font-semibold">
+                    <p>Process oldest requests first.</p>
+                </div>
+                
+                ${pendingRequests.length === 0 ? '<p class="text-gray-500 p-4 bg-white rounded-xl shadow-lg">No pending requests at this time.</p>' : ''}
+
+                ${pendingRequests.map(w => {
+                    const date = w.requestedAt ? new Date(w.requestedAt.seconds * 1000).toLocaleDateString() : 'N/A';
+                    return `
+                        <div class="dashboard-card bg-white p-4 rounded-xl shadow-md border-l-4 border-yellow-500">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <p class="font-bold text-xl text-gray-800">${w.amount} Coins</p>
+                                    <p class="text-sm text-gray-600">UPI: <span class="font-mono">${w.upiId}</span></p>
+                                    <p class="text-xs text-gray-500">User ID: <span class="font-mono">${w.userId}</span></p>
+                                    <p class="text-xs text-gray-500">Requested: ${date}</p>
+                                </div>
+                                <div class="flex space-x-2 mt-1">
+                                    <button onclick="handleUpdateWithdrawalStatus('${w.id}', 'Paid')" class="py-2 px-3 bg-green-500 text-white text-sm font-semibold rounded-lg hover:bg-green-600 transition">Paid</button>
+                                    <button onclick="promptForRejection('${w.id}')" class="py-2 px-3 bg-red-500 text-white text-sm font-semibold rounded-lg hover:bg-red-600 transition">Reject</button>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+
+                <h4 class="text-xl font-semibold text-gray-700 pt-4 border-t mt-6">Completed/Rejected Requests (${otherRequests.length})</h4>
+                <div class="space-y-2 max-h-64 overflow-y-auto border p-2 rounded-lg bg-gray-50">
+                    ${otherRequests.map(w => {
+                        const statusColor = w.status === 'Paid' ? 'text-green-600' : 'text-red-600';
+                         const date = w.statusUpdatedAt ? new Date(w.statusUpdatedAt.seconds * 1000).toLocaleDateString() : 'N/A';
+                        return `
+                            <div class="text-sm p-3 bg-white rounded-lg flex justify-between items-center border border-gray-200">
+                                <span>${w.amount} Coins to <span class="font-mono">${w.userId.substring(0, 8)}...</span></span>
+                                <span class="font-semibold ${statusColor}">${w.status} (${date})</span>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    function renderTaskCreator() {
+        return `
+            <div class="space-y-4 dashboard-card bg-white p-6 rounded-xl shadow-xl">
+                <h3 class="text-2xl font-bold text-gray-800 border-b pb-2">2. Create New Task</h3>
+                <p class="text-sm text-gray-600">Add a new link, the secret code users must find, and the coin reward.</p>
+
+                <label class="block text-sm font-medium text-gray-700">Task Name</label>
+                <input type="text" id="task-name" placeholder="E.g., Visit Daily Link" class="w-full p-3 border rounded-lg outline-none">
+                
+                <label class="block text-sm font-medium text-gray-700">Target URL (Full Link)</label>
+                <input type="url" id="task-url" placeholder="https://external-link-shortener.com/..." class="w-full p-3 border rounded-lg outline-none">
+                
+                <label class="block text-sm font-medium text-gray-700">Secret Code (Case Insensitive)</label>
+                <input type="text" id="task-code" placeholder="E.g., MYSECRET123" class="w-full p-3 border rounded-lg outline-none">
+                
+                <label class="block text-sm font-medium text-gray-700">Reward Coins</label>
+                <input type="number" id="task-reward" placeholder="E.g., 100" class="w-full p-3 border rounded-lg outline-none">
+                
+                <button onclick="handleCreateTask()" class="w-full py-3 bg-blue-600 text-white font-bold rounded-xl shadow-md hover:bg-blue-700">
+                    Publish New Task
+                </button>
+            </div>
+        `;
+    }
+    
+    // Renders the list of existing tasks for the owner
+    function renderExistingTasks() {
+        // Tasks are already sorted by the listener (newest first)
+        const tasks = state.tasks;
+
+        return `
+            <div class="space-y-4 dashboard-card bg-white p-6 rounded-xl shadow-xl">
+                <h3 class="text-2xl font-bold text-gray-800 border-b pb-2">3. Existing Tasks (${tasks.length})</h3>
+                <p class="text-sm text-gray-600">Tasks are displayed newest first. Secret codes are visible here.</p>
+                
+                ${tasks.length === 0 ? '<p class="text-gray-500">No tasks have been published yet.</p>' : ''}
+                
+                <div class="space-y-3 max-h-64 overflow-y-auto border p-2 rounded-lg bg-gray-50">
+                    ${tasks.map(task => `
+                        <div class="p-3 bg-white rounded-lg border border-gray-200 shadow-sm">
+                            <div class="flex justify-between items-center">
+                                <p class="font-semibold text-gray-800">${task.name} <span class="text-xs text-blue-500 ml-2">(${task.reward} Coins)</span></p>
+                                <!-- Edit/Delete functionality can be added here -->
+                            </div>
+                            <p class="text-xs text-gray-600 break-words">${task.targetUrl}</p>
+                            <p class="text-sm font-bold text-red-600 mt-1">CODE: ${task.secretCode}</p>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    // --- OWNER DATA MANAGEMENT FUNCTIONS ---
+
+    window.handleCreateTask = async () => {
+        const name = document.getElementById('task-name').value.trim();
+        const targetUrl = document.getElementById('task-url').value.trim();
+        const secretCode = document.getElementById('task-code').value.trim();
+        const reward = parseInt(document.getElementById('task-reward').value, 10);
+
+        if (!name || !targetUrl || !secretCode || isNaN(reward) || reward <= 0) {
+            showMessage("Please fill all fields with valid data.", true);
+            return;
+        }
+
+        try {
+            const tasksCollection = collection(db, `artifacts/${appId}/public/data/tasks`);
+            await addDoc(tasksCollection, {
+                name,
+                targetUrl,
+                secretCode: secretCode.toUpperCase(), // Store code in uppercase for consistency
+                reward,
+                createdAt: new Date()
+            });
+
+            showMessage(`Task "${name}" created successfully and is now live!`, false);
+            
+            // **FIX:** Explicitly force a re-render of the owner dashboard to show the new task immediately.
+            changePage('ownerDashboard'); 
+
+            // Clear inputs
+            document.getElementById('task-name').value = '';
+            document.getElementById('task-url').value = '';
+            document.getElementById('task-code').value = '';
+            document.getElementById('task-reward').value = '';
+        } catch (error) {
+            console.error("Error creating task:", error);
+            showMessage("Failed to create task.", true);
+        }
+    };
+
+    window.promptForRejection = (withdrawalId) => {
+        const reason = prompt("Enter a brief reason for rejecting this withdrawal request:");
+        if (reason) {
+            handleUpdateWithdrawalStatus(withdrawalId, 'Rejected', reason);
+        } else if (reason !== null) {
+            showMessage("Rejection cancelled.", true);
+        }
+    }
+    
+    window.handleUpdateWithdrawalStatus = async (withdrawalId, newStatus, rejectionReason = null) => {
+        if (!state.isOwner) {
+            showMessage("Permission denied.", true);
+            return;
+        }
+        if (!withdrawalId) {
+            showMessage("Error: Invalid withdrawal ID.", true);
+            return;
+        }
+
+        // The path being updated: artifacts/{appId}/public/data/withdrawalRequests/{withdrawalId}
+        const withdrawalRef = doc(db, `artifacts/${appId}/public/data/withdrawalRequests/${withdrawalId}`);
+
+        try {
+            const updateData = {
+                status: newStatus,
+                statusUpdatedAt: new Date() // Use this field for sorting completed requests
+            };
+            
+            if (newStatus === 'Rejected' && rejectionReason) {
+                updateData.rejectionReason = rejectionReason;
+            }
+
+            console.log(`Attempting to update withdrawal ID: ${withdrawalId} with status: ${newStatus}`);
+
+            await updateDoc(withdrawalRef, updateData);
+            
+            showMessage(`Withdrawal ${withdrawalId.substring(0, 4)}... successfully marked as ${newStatus}.`, false);
+            
+        } catch (error) {
+            // Explicitly log the full error for better debugging
+            console.error(`Error updating withdrawal status to ${newStatus} for ID ${withdrawalId}:`, error);
+            showMessage(`FATAL: Failed to update status. Error: ${error.message}`, true);
+        }
+    };
+
+    // --- NAVIGATION AND STATE CONTROL ---
+
+    window.changePage = (page, taskId = null) => {
+        if (!state.isAuthenticated) {
+            state.currentPage = 'login';
+        } else if (state.isOwner) {
+            // Owner can only see the dashboard
+            state.currentPage = 'ownerDashboard';
+        } else {
+            // Regular user pages
+            state.currentPage = page;
+            state.currentTask = null;
+            if (page === 'taskDetail' && taskId) {
+                const task = state.tasks.find(t => t.id === taskId);
+                state.currentTask = task;
+            }
+        }
+        renderApp();
+    };
+
+    // --- TASK & WITHDRAWAL LOGIC ---
+
+    window.startTask = (taskId) => {
+        const task = state.tasks.find(t => t.id === taskId);
+        if (task && task.targetUrl) {
+            window.open(task.targetUrl, '_blank');
+            showMessage("Link opened! Find the code and paste it below.", false);
+        } else {
+            showMessage("Error: Task URL not found.", true);
+        }
+    };
+
+    window.handleVerification = async (taskId) => {
+        const inputCode = document.getElementById('verification-code')?.value.trim();
+        const task = state.tasks.find(t => t.id === taskId);
+
+        if (!inputCode || !task || state.completedTaskIds.includes(taskId)) {
+            showMessage("Invalid input or task already completed.", true);
+            return;
+        }
+
+        if (inputCode.toUpperCase() === task.secretCode.toUpperCase()) {
+            const walletRef = doc(db, `artifacts/${appId}/users/${userId}/wallet/main`);
+            const completedTaskRef = doc(db, `artifacts/${appId}/users/${userId}/completedTasks/${taskId}`);
+            try {
+                const newBalance = state.walletBalance + task.reward;
+                await setDoc(walletRef, { coins: newBalance, updatedAt: new Date() }, { merge: true });
+                await setDoc(completedTaskRef, { taskId: taskId, completedAt: new Date(), reward: task.reward });
+                showMessage(`Success! +${task.reward} Coins added!`, false);
+                changePage('tasks');
+            } catch (error) {
+                console.error("Error claiming coins:", error);
+                showMessage("An error occurred while claiming coins.", true);
+            }
+        } else {
+            showMessage("Verification Failed. The code is incorrect.", true);
+        }
+    };
+
+    window.requestWithdrawal = async () => {
+        const upiIdEl = document.getElementById('upiId');
+        const amountEl = document.getElementById('amount');
+        const upiId = upiIdEl.value.trim();
+        const amount = parseInt(amountEl.value, 10);
+        const minWithdrawal = 1000;
+
+        // --- WITHDRAWAL VALIDATION ---
+        if (state.walletBalance === 0) {
+            showMessage("Your wallet balance is 0. Please complete tasks to earn coins before withdrawing.", true);
+            return;
+        }
+
+        if (state.walletBalance < minWithdrawal) {
+             showMessage(`You must have at least ${minWithdrawal} coins to initiate a withdrawal.`, true);
+             return;
+        }
+
+        if (!upiId || upiId.length < 5 || isNaN(amount) || amount < minWithdrawal || amount > state.walletBalance) {
+            showMessage(`Please enter a valid UPI ID, ensure amount is at least ${minWithdrawal} coins, and you have sufficient funds (${state.walletBalance.toFixed(0)} coins).`, true);
+            return;
+        }
+        // ---------------------------------
+
+        // Requests are written to the central public collection
+        const withdrawalsCollection = collection(db, `artifacts/${appId}/public/data/withdrawalRequests`);
+        const walletRef = doc(db, `artifacts/${appId}/users/${userId}/wallet/main`);
+
+        try {
+            await addDoc(withdrawalsCollection, {
+                userId: userId,
+                upiId: upiId,
+                amount: amount,
+                status: 'Pending', 
+                requestedAt: new Date(),
+                username: auth.currentUser.email.replace(FAKE_DOMAIN, '')
+            });
+
+            // Deduct the amount from the wallet
+            const newBalance = state.walletBalance - amount;
+            await updateDoc(walletRef, { coins: newBalance });
+
+            upiIdEl.value = '';
+            amountEl.value = '';
+            showMessage("Withdrawal request submitted! Status is Pending.", false);
+            changePage('withdrawals');
+
+        } catch (error) {
+            console.error("Error requesting withdrawal:", error);
+            showMessage("An error occurred during withdrawal request.", true);
+        }
+    };
+
+    // --- FIREBASE LISTENERS ---
+
+    const listeners = {};
+
+    function startListeners(uid) {
+        if (!uid) return;
+
+        // Listener 1: Public Tasks (Shared by User and Owner)
+        // Order by creation time to show the newest tasks first.
+        const tasksCollection = collection(db, `artifacts/${appId}/public/data/tasks`);
+        const tasksQuery = query(tasksCollection, orderBy("createdAt", "desc"));
+
+        listeners.tasks = onSnapshot(tasksQuery, (snapshot) => {
+            const newTasks = [];
+            snapshot.forEach((doc) => {
+                const data = doc.data();
+                newTasks.push({ id: doc.id, ...data, createdAt: data.createdAt || new Date(0) }); 
+            });
+            state.tasks = newTasks; 
+            
+            // Render only if on a page that displays tasks/dashboard
+            if (['tasks', 'taskDetail', 'ownerDashboard'].includes(state.currentPage)) renderApp();
+        }, (error) => console.error("Error listening to tasks:", error));
+
+        // Listener 2: User Wallet (Private Data)
+        const walletRef = doc(db, `artifacts/${appId}/users/${uid}/wallet/main`);
+        listeners.wallet = onSnapshot(walletRef, (docSnap) => {
+            let initialBalance = 0;
+            if (docSnap.exists()) {
+                initialBalance = docSnap.data().coins || 0;
+            } else {
+                setDoc(walletRef, { coins: 0, createdAt: new Date() }).catch(e => console.error("Error initializing wallet:", e));
+            }
+            state.walletBalance = initialBalance;
+            renderApp();
+        }, (error) => console.error("Error listening to wallet:", error));
+
+        // Listener 3: Completed Tasks (Private Data)
+        const completedCollection = collection(db, `artifacts/${appId}/users/${uid}/completedTasks`);
+        listeners.completedTasks = onSnapshot(completedCollection, (snapshot) => {
+            const completedIds = [];
+            snapshot.forEach((doc) => completedIds.push(doc.id));
+            state.completedTaskIds = completedIds;
+            // Re-render if on task list to ensure completed tasks disappear
+            if (state.currentPage === 'tasks' || state.currentPage === 'taskDetail') renderApp();
+        }, (error) => console.error("Error listening to completed tasks:", error));
+
+        // Listener 4A: User's Withdrawal History (Querying Public Collection, filtered by UID)
+        const publicWithdrawalsCollection = collection(db, `artifacts/${appId}/public/data/withdrawalRequests`);
+        const userWithdrawalQuery = query(publicWithdrawalsCollection, where("userId", "==", uid), orderBy("requestedAt", "desc"), limit(50));
+        listeners.userWithdrawals = onSnapshot(userWithdrawalQuery, (snapshot) => {
+            const newWithdrawals = [];
+            snapshot.forEach((doc) => newWithdrawals.push({ id: doc.id, ...doc.data() }));
+            state.withdrawals = newWithdrawals;
+            if (state.currentPage === 'withdrawals' || state.currentPage === 'wallet') renderApp();
+        }, (error) => console.error("Error listening to user withdrawals:", error));
+
+        // Listener 4B: Owner's ALL Withdrawal Requests (Only needed if user is owner)
+        if (state.isOwner) {
+             const ownerWithdrawalQuery = query(publicWithdrawalsCollection, orderBy("requestedAt", "desc"), limit(200));
+             listeners.ownerWithdrawals = onSnapshot(ownerWithdrawalQuery, (snapshot) => {
+                const allRequests = [];
+                snapshot.forEach((doc) => allRequests.push({ id: doc.id, ...doc.data() }));
+                state.allWithdrawalRequests = allRequests;
+                if (state.currentPage === 'ownerDashboard') renderApp();
+            }, (error) => console.error("Error listening to all withdrawals:", error));
+        }
+    }
+
+    /** Stops all active Firestore listeners and clears local state */
+    function stopListeners() {
+        Object.values(listeners).forEach(unsubscribe => {
+            if (typeof unsubscribe === 'function') unsubscribe();
+        });
+        state.tasks = [];
+        state.walletBalance = 0;
+        state.completedTaskIds = [];
+        state.withdrawals = [];
+        state.allWithdrawalRequests = [];
+    }
+
+    // --- INITIALIZATION ---
+
+    async function initApp() {
+        try {
+            setLogLevel('debug');
+
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            
+            onAuthStateChanged(auth, (user) => {
+                stopListeners();
+
+                if (user) {
+                    userId = user.uid;
+                    state.isAuthenticated = true;
+                    // Check for Owner role
+                    state.isOwner = user.email === OWNER_EMAIL;
+
+                    if (state.isOwner) {
+                        state.currentPage = 'ownerDashboard';
+                    } else {
+                        state.currentPage = 'tasks';
+                    }
+                    startListeners(userId);
+                } else {
+                    userId = null;
+                    state.isAuthenticated = false;
+                    state.isOwner = false;
+                    state.currentPage = 'login';
+                }
+                renderApp();
+            });
+
+        } catch (error) {
+            console.error("Firebase Initialization Error:", error);
+            contentEl.innerHTML = `<div class="p-8 bg-red-100 text-red-700 rounded-xl">Fatal Error: Cannot connect to services. Check console.</div>`;
+        }
+    }
+
+    // Start the application
+    initApp();
+
+</script>
+
+</body>
+</html>
